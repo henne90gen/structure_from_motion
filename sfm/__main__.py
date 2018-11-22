@@ -31,8 +31,8 @@ def get_frames_from_video():
         counter += 1
         if counter % 2 == 0:
             continue
-        # if counter > 10:
-        #     break
+        if counter > 10:
+            break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frames.append(Frame(gray))
@@ -42,11 +42,12 @@ def get_frames_from_video():
 
 
 def calculate_feature_points(frames: list):
+    detector = cv2.BRISK_create()
     for frame in frames:
         blurred = cv2.GaussianBlur(frame.image, (3, 3), 0)
-        keypoints, descriptors = cv2.BRISK_create().detectAndCompute(blurred, None)
+        keypoints, descriptors = detector.detectAndCompute(blurred, None)
         keypoint_image = cv2.drawKeypoints(blurred, keypoints, None)
-        frame.features = list(zip(keypoints, descriptors))
+        frame.features = (keypoints, descriptors)
 
         # Show keypoints on image
         # cv2.imshow('keypoint_image', keypoint_image)
@@ -54,10 +55,37 @@ def calculate_feature_points(frames: list):
 
     return frames
 
+
 def main():
     frames = get_frames_from_video()
     frames = calculate_feature_points(frames)
-    print(frames)
+
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+    search_params = dict(checks=50)
+
+    matcher = cv2.FlannBasedMatcher(index_params, search_params)
+
+    for i in range(len(frames) - 1):
+        frame = frames[i]
+        next_frame = frames[i + 1]
+        descriptors = frame.features[1]
+        next_descriptors = next_frame.features[1]
+        if not descriptors.any():
+            continue
+        if not next_descriptors.any():
+            continue
+        print("Matching")
+        matches = matcher.knnMatch(descriptors, next_descriptors, k=2)
+
+        draw_params = dict(matchColor=(0, 255, 0),
+                           singlePointColor=(255, 0, 0),
+                           flags=0)
+        matches_image = cv2.drawMatchesKnn(frame.image, frame.features[0], next_frame.image,
+                                           next_frame.features[0], matches, None, **draw_params)
+        cv2.imshow('matches_image', matches_image)
+        cv2.waitKey(10)
+
     cv2.waitKey()
 
 
