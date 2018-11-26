@@ -29,9 +29,9 @@ def get_frames_from_video():
             break
 
         counter += 1
-        if counter % 2 == 0:
+        if counter % 5 == 0:
             continue
-        if counter > 10:
+        if counter > 100:
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
