@@ -261,10 +261,28 @@ def main():
             [a3, 0, -1 * a1],
             [-1 * a2, a1, 0]
         ]) * fundamental_matrix
-        camera_matrix = np.ndarray((3, 4))
-        camera_matrix[0:3, 0:3] = partial_camera_matrix
-        camera_matrix[:, 3] = right_epipole
-        print(camera_matrix)
+        right_camera_matrix = np.ndarray((3, 4))
+        right_camera_matrix[0:3, 0:3] = partial_camera_matrix
+        right_camera_matrix[:, 3] = right_epipole
+
+        left_camera_matrix = np.ndarray((3, 4))
+        left_camera_matrix[0:3, 0:3] = np.identity(3)
+        left_camera_matrix[:, 3] = [0, 0, 0]
+
+        print(left_camera_matrix)
+        print(right_camera_matrix)
+        print(pts1.size)
+        print(pts2.size)
+        result = cv2.triangulatePoints(
+            left_camera_matrix,
+            right_camera_matrix,
+            pts1.reshape(2, pts1.size // 2).astype(float),
+            pts2.reshape(2, pts2.size // 2).astype(float)
+        )
+        result = result.reshape(result.size // 4, 4)
+        for row in result:
+            row = row / row[-1]
+            print(row)
 
         cv2.waitKey(10)
 
