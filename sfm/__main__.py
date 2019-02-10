@@ -90,6 +90,54 @@ def calculate_epipoles(lines):
     return epipoles
 
 
+def triangulate(pts1, pts2, K, Kinv, P, P1):
+    # triangulate
+    pts1_pt_2r = pts1.reshape(2, pts1.size // 2).astype(float)
+    pts2_pt_2r = pts2.reshape(2, pts2.size // 2).astype(float)
+    pt_3d_h = cv2.triangulatePoints(P, P1, pts1_pt_2r, pts2_pt_2r)
+
+    # calculate reprojection
+    error = []
+    pt_3d = cv2.convertPointsFromHomogeneous(
+        pt_3d_h.reshape(pt_3d_h.size // 4, 4))
+    R = P[0:3, 0:3]
+    rvec, _ = cv2.Rodrigues(R)
+    tvec = P[:, 3]
+    reprojected_pt_set, _ = cv2.projectPoints(
+        pt_3d, rvec, tvec, K, np.array([]))
+    reprojected_pt_set = reprojected_pt_set.reshape(
+        reprojected_pt_set.size // 2, 2)
+
+    for point, reprojected_point in zip(pts1, reprojected_pt_set):
+        error.append(cv2.norm(point - reprojected_point))
+
+    reprojection_error = cv2.mean(np.array(error))[0]
+    print(reprojection_error)
+    return reprojection_error
+
+
+def test_triangulation():
+    pass
+    # vector<Point3d> pcloud_pt3d = CloudPointsToPoints(pcloud);
+    # vector<Point3d> pcloud_pt3d_projected(pcloud_pt3d.size());
+
+    # Matx44d P4x4 = Matx44d::eye();
+    # for(int i=0;i<12;i++) P4x4.val[i] = P.val[i];
+
+    # perspectiveTransform(pcloud_pt3d, pcloud_pt3d_projected, P4x4);
+
+    # status.resize(pcloud.size(),0);
+    # for (int i=0; i<pcloud.size(); i++) {
+    #     status[i] = (pcloud_pt3d_projected[i].z > 0) ? 1 : 0;
+    # }
+    # int count = countNonZero(status);
+
+    # double percentage = ((double)count / (double)pcloud.size());
+    # cout << count << "/" << pcloud.size() << " = " << percentage*100.0 << "% are in front of camera" << endl;
+    # if(percentage < 0.75)
+    #     return false; //less than 75% of the points are in front of the camera
+
+
 def process_adjacent_frames(frame, next_frame):
     keypoints = frame.features[0]
     next_keypoints = next_frame.features[0]
@@ -159,38 +207,97 @@ def process_adjacent_frames(frame, next_frame):
     right_epipole = right_epipole / right_epipole[-1]
 
     draw_epilines_and_epipoles(frame.image, next_frame.image,
-                                pts1, pts2, lines1, lines2, left_epipole, right_epipole)
+                               pts1, pts2, lines1, lines2, left_epipole, right_epipole)
 
-    a1 = right_epipole[0]
-    a2 = right_epipole[1]
-    a3 = right_epipole[2]
-    partial_camera_matrix = np.array([
-        [0, -1 * a3, a2],
-        [a3, 0, -1 * a1],
-        [-1 * a2, a1, 0]
-    ]) * fundamental_matrix
-    right_camera_matrix = np.ndarray((3, 4))
-    right_camera_matrix[0:3, 0:3] = partial_camera_matrix
-    right_camera_matrix[:, 3] = right_epipole
+    K = np.identity(3)
+    K[0, 0] = 1000
+    K[1, 1] = 1000
+    K[0, 2] = frame.image.shape[1] / 2
+    K[1, 2] = frame.image.shape[0] / 2
+    essential_matrix = K.T * fundamental_matrix * K
+    R1 = np.identity(3)
+    R2 = np.identity(3)
+    t = np.ndarray((3))
+    cv2.decomposeEssentialMat(essential_matrix, R1, R2, t)
 
-    left_camera_matrix = np.ndarray((3, 4))
-    left_camera_matrix[0:3, 0:3] = np.identity(3)
-    left_camera_matrix[:, 3] = [0, 0, 0]
+    P = np.ndarray((3, 4))
+    P[0:3, 0:3] = np.identity(3)
+    P[:, 3] = [0, 0, 0]
 
-    print(left_camera_matrix)
-    print(right_camera_matrix)
-    print(pts1.size)
-    print(pts2.size)
-    result = cv2.triangulatePoints(
-        left_camera_matrix,
-        right_camera_matrix,
-        pts1.reshape(2, pts1.size // 2).astype(float),
-        pts2.reshape(2, pts2.size // 2).astype(float)
-    )
-    result = result.reshape(result.size // 4, 4)
-    for row in result:
-        row = row / row[-1]
-        print(row)
+    P1 = np.ndarray((3, 4))
+    P1[0:3, 0:3] = R1
+    P1[:, 3] = t
+
+    triangulate(pts1, pts2, K, np.linalg.inv(K), P, P1)
+    # if test_triangulation():
+    #     print("Triangulation succeeded")
+
+    P1[0:3, 0:3] = R1
+    P1[:, 3] = t * -1
+    triangulate(pts1, pts2, K, np.linalg.inv(K), P, P1)
+    # if test_triangulation():
+    #     print("Triangulation succeeded")
+
+    P1[0:3, 0:3] = R2
+    P1[:, 3] = t
+    triangulate(pts1, pts2, K, np.linalg.inv(K), P, P1)
+    # if test_triangulation():
+    #     print("Triangulation succeeded")
+
+    P1[0:3, 0:3] = R2
+    P1[:, 3] = t * -1
+    triangulate(pts1, pts2, K, np.linalg.inv(K), P, P1)
+    # if test_triangulation():
+    #     print("Triangulation succeeded")
+
+    # a1 = right_epipole[0]
+    # a2 = right_epipole[1]
+    # a3 = right_epipole[2]
+    # partial_camera_matrix = np.array([
+    #     [0, -1 * a3, a2],
+    #     [a3, 0, -1 * a1],
+    #     [-1 * a2, a1, 0]
+    # ]) * fundamental_matrix
+    # right_camera_matrix = np.ndarray((3, 4))
+    # right_camera_matrix[0:3, 0:3] = partial_camera_matrix
+    # right_camera_matrix[:, 3] = right_epipole
+
+    # left_camera_matrix = np.ndarray((3, 4))
+    # left_camera_matrix[0:3, 0:3] = np.identity(3)
+    # left_camera_matrix[:, 3] = [0, 0, 0]
+
+    # print(left_camera_matrix)
+    # print(right_camera_matrix)
+
+    # res, left_homography_matrix, right_homography_matrix = cv2.stereoRectifyUncalibrated(
+    #     pts1, pts2, fundamental_matrix, frame.image.shape)
+    # print(res)
+    # print(left_homography_matrix)
+    # print(right_homography_matrix)
+
+    # left_rotation = np.linalg.inv(np.identity(3)) * left_homography_matrix * \
+    #     np.identity(3)
+    # right_rotation = np.linalg.inv(partial_camera_matrix) * right_homography_matrix * \
+    #     partial_camera_matrix
+    # print(left_rotation)
+    # print(right_rotation)
+    # left_pose = cameraPoseFromHomography(left_homography_matrix)
+    # right_pose = cameraPoseFromHomography(right_homography_matrix)
+    # print(left_pose)
+    # print(right_pose)
+
+    # print(pts1.size)
+    # print(pts2.size)
+    # result = cv2.triangulatePoints(
+    #     left_camera_matrix,
+    #     right_camera_matrix,
+    #     pts1.reshape(2, pts1.size // 2).astype(float),
+    #     pts2.reshape(2, pts2.size // 2).astype(float)
+    # )
+    # result = result.reshape(result.size // 4, 4)
+    # for row in result:
+    #     row = row / row[-1]
+    #     print(row)
 
     cv2.waitKey(10)
 
